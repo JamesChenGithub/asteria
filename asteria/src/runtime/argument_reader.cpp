@@ -12,6 +12,8 @@ Argument_Reader::
   {
   }
 
+
+/*
 void
 Argument_Reader::
 do_record_parameter_required(Type type)
@@ -609,5 +611,5 @@ const
                   "$3  -- end of list of overloads]",
                   this->m_name, arguments, overloads);
   }
-
+*/
 }  // namespace asteria

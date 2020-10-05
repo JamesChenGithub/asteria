@@ -6,78 +6,27 @@
 
 #include "../fwd.hpp"
 #include "reference.hpp"
-#include "../value.hpp"
+#include "../details/argument_reader.ipp"
 
 namespace asteria {
 
 class Argument_Reader
   {
-  public:
-    struct State
-      {
-        cow_string history;
-        uint32_t nparams;
-        bool finished;
-        bool succeeded;
-      };
-
   private:
     cow_string m_name;
-    ref<const cow_vector<Reference>> m_args;
+    const cow_vector<Reference>* m_args;
 
-    // `m_ovlds` contains all overloads that have been tested so far.
-    cow_string m_ovlds;
-    // `m_state` can be copied elsewhere and back; any further operations will resume
-    // from that point.
-    State m_state = { };
+    details_argument_reader::State m_state;
+    cow_vector<details_argument_reader::State> m_saved_states;
+    cow_string m_arg_lists;
 
   public:
     Argument_Reader(const cow_string& name, ref<const cow_vector<Reference>> args)
     noexcept
-      : m_name(name), m_args(args)
+      : m_name(name), m_args(args.ptr())
       { }
 
     ASTERIA_NONCOPYABLE_DESTRUCTOR(Argument_Reader);
-
-  private:
-    inline
-    Argument_Reader&
-    do_fail()
-    noexcept
-      {
-        this->m_state.succeeded = false;
-        return *this;
-      }
-
-    inline
-    void
-    do_record_parameter_optional(Type type);
-
-    inline
-    void
-    do_record_parameter_required(Type type);
-
-    inline
-    void
-    do_record_parameter_generic();
-
-    inline
-    void
-    do_record_parameter_variadic();
-
-    inline
-    void
-    do_record_parameter_finish();
-
-    inline
-    const Reference*
-    do_peek_argument_opt()
-    const;
-
-    inline
-    opt<size_t>
-    do_check_finish_opt()
-    const;
 
   public:
     const cow_string&
@@ -85,124 +34,91 @@ class Argument_Reader
     const noexcept
       { return this->m_name;  }
 
-    size_t
-    count_arguments()
-    const noexcept
-      { return this->m_args.get().size();  }
-
-    const Reference&
-    argument(size_t index)
-    const
-      { return this->m_args.get().at(index);  }
-
-    // `S` stands for `save` or `store`.
-    const Argument_Reader&
-    S(State& state)
-    const noexcept
-      {
-        state = this->m_state;
-        return *this;
-      }
+    // These functions access `m_saved_states`.
+    // Under a number of circumstances, function overloads share a common initial
+    // parameter sequence. We allow saving and loading parser states to eliminate
+    // the overhead of re-parsing this sequence.
+    // The `index` argument is a subscript of `m_saved_states`, which is resized
+    // by `save_state()` as necessary.
+    Argument_Reader&
+    load_state(size_t index);
 
     Argument_Reader&
-    S(State& state)
-    noexcept
-      {
-        state = this->m_state;
-        return *this;
-      }
+    save_state(size_t index);
 
-    // `L` stands for `load`.
+    // Start an overload. Effectively, this function clears `m_state`.
     Argument_Reader&
-    L(const State& state)
-    noexcept
-      {
-        this->m_state = state;
-        return *this;
-      }
+    start_overload();
 
-    // Start recording an overload.
-    // `I` stands for `initiate` or `initialize`.
+    // Gets an optional argument. The argument may be of the desired type or null.
     Argument_Reader&
-    I()
-    noexcept;
+    opt_reference(Reference& arg);
 
-    // Terminate the argument list and finish this overload.
-    // For the overload taking no argument, if there are excess arguments, the operation
-    // fails.
-    // For the other overloads, excess arguments are copied into `vargs`.
-    // `F` stands for `finish` or `finalize`.
+    Argument_Reader&
+    opt_value(Value& arg);
+
+    Argument_Reader&
+    opt_boolean(Opt_boolean& arg);
+
+    Argument_Reader&
+    opt_integer(Opt_integer& arg);
+
+    Argument_Reader&
+    opt_real(Opt_real& arg);
+
+    Argument_Reader&
+    opt_string(Opt_string& arg);
+
+    Argument_Reader&
+    opt_opaque(Opt_opaque& arg);
+
+    Argument_Reader&
+    opt_function(Opt_function& arg);
+
+    Argument_Reader&
+    opt_array(Opt_array& arg);
+
+    Argument_Reader&
+    opt_object(Opt_object& arg);
+
+    // Gets a required argument. The argument must be of the desired type.
+    Argument_Reader&
+    req_boolean(V_boolean& arg);
+
+    Argument_Reader&
+    req_integer(V_integer& arg);
+
+    Argument_Reader&
+    req_real(V_real& arg);
+
+    Argument_Reader&
+    req_string(V_string& arg);
+
+    Argument_Reader&
+    req_opaque(V_opaque& arg);
+
+    Argument_Reader&
+    req_function(V_function& arg);
+
+    Argument_Reader&
+    req_array(V_array& arg);
+
+    Argument_Reader&
+    req_object(V_object& arg);
+
+    // Finish an overload. The return value indicates whether the overload has
+    // been accepted. The second and third functions accept variadic arguments.
     bool
-    F(cow_vector<Reference>& vargs);
+    finish_overload();
 
     bool
-    F(cow_vector<Value>& vargs);
+    finish_overload(cow_vector<Reference>& vargs);
 
     bool
-    F();
+    finish_overload(cow_vector<Value>& vargs);
 
-    // Get a REQUIRED argument.
-    // The argument must exist and must be of the desired type; otherwise the operation
-    // fails.
-    Argument_Reader&
-    v(V_boolean& xval);
-
-    Argument_Reader&
-    v(V_integer& xval);
-
-    Argument_Reader&
-    v(V_real& xval);  // performs integer-to-real conversions as necessary
-
-    Argument_Reader&
-    v(V_string& xval);
-
-    Argument_Reader&
-    v(V_opaque& xval);
-
-    Argument_Reader&
-    v(V_function& xval);
-
-    Argument_Reader&
-    v(V_array& xval);
-
-    Argument_Reader&
-    v(V_object& xval);
-
-    // Get an OPTIONAL argument.
-    // The argument must exist and must be of the desired type or `null`; otherwise the
-    // operation fails.
-    // `g` stands for `get` or `go`.
-    Argument_Reader&
-    o(Reference& ref);
-
-    Argument_Reader&
-    o(Value& val);
-
-    Argument_Reader&
-    o(Opt_boolean& xopt);
-
-    Argument_Reader&
-    o(Opt_integer& xopt);
-
-    Argument_Reader&
-    o(Opt_real& xopt);  // performs integer-to-real conversions as necessary
-
-    Argument_Reader&
-    o(Opt_string& xopt);
-
-    Argument_Reader&
-    o(Opt_opaque& xopt);
-
-    Argument_Reader&
-    o(Opt_function& xopt);
-
-    Argument_Reader&
-    o(Opt_array& xopt);
-
-    Argument_Reader&
-    o(Opt_object& xopt);
-
-    // Throw an exception saying there are no viable overloads.
+    // This function throws an exception containing a message composed from all
+    // overloads that have been tested so far.
     [[noreturn]]
     void
     throw_no_matching_function_call()
